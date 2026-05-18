@@ -435,6 +435,14 @@ class AxolotlTrainer(
                 num_items_in_batch=num_items_in_batch,
             )
 
+        if self.args.dft_loss:
+            return self.dft_compute_loss(
+                model,
+                inputs,
+                return_outputs=return_outputs,
+                num_items_in_batch=num_items_in_batch,
+            )
+
         return super().compute_loss(
             model,
             inputs,
@@ -461,6 +469,45 @@ class AxolotlTrainer(
         return super().prediction_step(
             model, inputs, prediction_loss_only, ignore_keys=ignore_keys
         )
+
+    def dft_compute_loss(
+        self,
+        model,
+        inputs,
+        return_outputs=False,
+        num_items_in_batch=None,
+    ):
+        """Dynamic Fine-Tuning loss: L_t = -p_θ(y_t) * log p_θ(y_t)
+
+        Weights standard cross-entropy by the model's own confidence on the
+        gold token, suppressing gradient spikes from tokens the model is
+        confidently wrong about.
+        """
+        labels = inputs.pop("labels")
+        outputs = model(**inputs)
+        logits = outputs.logits
+
+        shift_logits = logits[..., :-1, :].contiguous()
+        shift_labels = labels[..., 1:].contiguous()
+
+        log_probs = torch.nn.functional.log_softmax(shift_logits, dim=-1)
+        gold_log_probs = log_probs.gather(
+            dim=-1, index=shift_labels.clamp(min=0).unsqueeze(-1)
+        ).squeeze(-1)
+
+        # DFT weighting: multiply CE by the model's probability of the gold token
+        gold_probs = gold_log_probs.exp()
+        per_token_loss = -gold_probs * gold_log_probs
+
+        mask = shift_labels != -100
+        per_token_loss = per_token_loss * mask
+
+        if num_items_in_batch is not None:
+            loss = per_token_loss.sum() / num_items_in_batch
+        else:
+            loss = per_token_loss.sum() / mask.sum().clamp(min=1)
+
+        return (loss, outputs) if return_outputs else loss
 
     @staticmethod
     def orpo_concatenate_inputs(inputs, label_pad_token=-100, pad_token=0, device=None):

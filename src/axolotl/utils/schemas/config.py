@@ -1128,6 +1128,12 @@ class AxolotlInputConfig(
             "description": "Parameter controlling the relative ratio loss weight in the ORPO loss. Passed to `beta` in `ORPOConfig` due to trl mapping."
         },
     )
+    dft_loss: bool = Field(
+        default=False,
+        json_schema_extra={
+            "description": "Enable Dynamic Fine-Tuning loss. Weights cross-entropy by model confidence p(y_t), reducing gradient spikes from confident conflicts."
+        },
+    )
     simpo_gamma: float | None = Field(
         default=None,
         json_schema_extra={"description": "Target reward margin for the SimPO loss"},

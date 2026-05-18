@@ -171,6 +171,10 @@ class AxolotlTrainingMixins:
     orpo_alpha: Optional[float] = field(
         default=None,
     )
+    dft_loss: bool = field(
+        default=False,
+        metadata={"help": "Use Dynamic Fine-Tuning loss (weight CE by model confidence)"},
+    )
     lisa_n_layers: Optional[int] = field(
         default=None,
         metadata={"help": "the number of activate layers in LISA"},
