@@ -495,9 +495,8 @@ class AxolotlTrainer(
             dim=-1, index=shift_labels.clamp(min=0).unsqueeze(-1)
         ).squeeze(-1)
 
-        # DFT weighting: multiply CE by the model's probability of the gold token
-        gold_probs = gold_log_probs.exp()
-        per_token_loss = -gold_probs * gold_log_probs
+        # DFT weighting: multiply CE by the model's (detached) probability of the gold token
+        per_token_loss = -gold_log_probs.exp().detach() * gold_log_probs
 
         mask = shift_labels != -100
         per_token_loss = per_token_loss * mask
