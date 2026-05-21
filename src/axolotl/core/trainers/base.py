@@ -553,9 +553,14 @@ class AxolotlTrainer(
                 ref_outputs = model(**{k: v for k, v in inputs.items()})
             ref_logits = ref_outputs.logits[..., :-1, :].contiguous()
 
-        ref_log_probs = torch.nn.functional.log_softmax(ref_logits, dim=-1)
-        kl_per_token = (
-            log_probs.exp() * (log_probs - ref_log_probs)
+        # KL(ref || policy) -- matches official ASFT repo: F.kl_div(log_policy, ref_probs)
+        # = sum(ref_probs * (log_ref_probs - log_policy_probs))
+        # Penalises policy for forgetting what the base model knows.
+        ref_logits = ref_logits.detach()
+        kl_per_token = torch.nn.functional.kl_div(
+            log_probs,
+            torch.nn.functional.softmax(ref_logits, dim=-1),
+            reduction="none",
         ).sum(dim=-1)
         kl_per_token = kl_per_token * mask
 
