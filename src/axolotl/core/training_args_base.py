@@ -175,6 +175,14 @@ class AxolotlTrainingMixins:
         default=False,
         metadata={"help": "Use Dynamic Fine-Tuning loss (weight CE by model confidence)"},
     )
+    asft_loss: bool = field(
+        default=False,
+        metadata={"help": "Use Anchored SFT loss (DFT + KL anchor to base model via disable_adapter)"},
+    )
+    asft_beta: float = field(
+        default=0.03,
+        metadata={"help": "KL weight for ASFT loss (0.03-0.05 recommended for bf16 LoRA)"},
+    )
     lisa_n_layers: Optional[int] = field(
         default=None,
         metadata={"help": "the number of activate layers in LISA"},

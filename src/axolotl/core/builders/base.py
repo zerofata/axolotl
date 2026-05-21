@@ -572,6 +572,8 @@ class TrainerBuilderBase(abc.ABC):
             # loss
             "orpo_alpha",
             "dft_loss",
+            "asft_loss",
+            "asft_beta",
         ]:
             if hasattr(self.cfg, arg) and getattr(self.cfg, arg) is not None:
                 training_args_kwargs[arg] = getattr(self.cfg, arg)

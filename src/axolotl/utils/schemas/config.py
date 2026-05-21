@@ -1134,6 +1134,18 @@ class AxolotlInputConfig(
             "description": "Enable Dynamic Fine-Tuning loss. Weights cross-entropy by model confidence p(y_t), reducing gradient spikes from confident conflicts."
         },
     )
+    asft_loss: bool = Field(
+        default=False,
+        json_schema_extra={
+            "description": "Enable Anchored SFT loss (DFT + KL anchor to base model). Requires LoRA so the base model can be obtained via disable_adapter()."
+        },
+    )
+    asft_beta: float = Field(
+        default=0.03,
+        json_schema_extra={
+            "description": "KL divergence weight for ASFT loss. Paper recommends 0.03-0.05 for bf16 LoRA."
+        },
+    )
     simpo_gamma: float | None = Field(
         default=None,
         json_schema_extra={"description": "Target reward margin for the SimPO loss"},
@@ -1353,6 +1365,17 @@ class AxolotlInputConfig(
             LOG.warning(
                 "We found loss to drop to 0 with SageAttention full finetuning."
                 "Please observe the loss, otherwise switch to LoRA/QLoRA or another attention method."
+            )
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def check_asft_requires_lora(cls, data):
+        if data.get("asft_loss") and not data.get("adapter"):
+            LOG.warning(
+                "asft_loss requires a LoRA/QLoRA adapter so reference logits "
+                "can be obtained via disable_adapter(). Without an adapter, "
+                "ASFT has no base model reference and will error."
             )
         return data
 

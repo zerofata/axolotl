@@ -435,6 +435,14 @@ class AxolotlTrainer(
                 num_items_in_batch=num_items_in_batch,
             )
 
+        if self.args.asft_loss:
+            return self.asft_compute_loss(
+                model,
+                inputs,
+                return_outputs=return_outputs,
+                num_items_in_batch=num_items_in_batch,
+            )
+
         if self.args.dft_loss:
             return self.dft_compute_loss(
                 model,
@@ -505,6 +513,58 @@ class AxolotlTrainer(
             loss = per_token_loss.sum() / num_items_in_batch
         else:
             loss = per_token_loss.sum() / mask.sum().clamp(min=1)
+
+        return (loss, outputs) if return_outputs else loss
+
+    def asft_compute_loss(
+        self,
+        model,
+        inputs,
+        return_outputs=False,
+        num_items_in_batch=None,
+    ):
+        """Anchored SFT loss: DFT + KL(pi_theta || pi_base).
+
+        Uses LoRA disable_adapter() to obtain reference logits from the base
+        model without loading a second copy.  Compatible with FSDP -- the
+        forward pass stays on the wrapped model; only the PEFT adapter toggle
+        touches the unwrapped model.
+        """
+        labels = inputs.pop("labels")
+        outputs = model(**inputs)
+        logits = outputs.logits
+
+        shift_logits = logits[..., :-1, :].contiguous()
+        shift_labels = labels[..., 1:].contiguous()
+        mask = (shift_labels != -100).float()
+
+        # --- DFT term ---
+        log_probs = torch.nn.functional.log_softmax(shift_logits, dim=-1)
+        gold_log_probs = log_probs.gather(
+            dim=-1, index=shift_labels.clamp(min=0).unsqueeze(-1)
+        ).squeeze(-1)
+        per_token_loss = -gold_log_probs.exp().detach() * gold_log_probs
+        per_token_loss = per_token_loss * mask
+
+        # --- KL anchor term (reference forward with adapters disabled) ---
+        with torch.no_grad():
+            unwrapped = self.accelerator.unwrap_model(self.model)
+            with unwrapped.disable_adapter():
+                ref_outputs = model(**{k: v for k, v in inputs.items()})
+            ref_logits = ref_outputs.logits[..., :-1, :].contiguous()
+
+        ref_log_probs = torch.nn.functional.log_softmax(ref_logits, dim=-1)
+        kl_per_token = (
+            log_probs.exp() * (log_probs - ref_log_probs)
+        ).sum(dim=-1)
+        kl_per_token = kl_per_token * mask
+
+        # --- Combine ---
+        combined = per_token_loss + self.args.asft_beta * kl_per_token
+        if num_items_in_batch is not None:
+            loss = combined.sum() / num_items_in_batch
+        else:
+            loss = combined.sum() / mask.sum().clamp(min=1)
 
         return (loss, outputs) if return_outputs else loss
 
